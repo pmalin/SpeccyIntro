@@ -1,0 +1,676 @@
+; Bitplane Revolution
+; by P_Malin / Bitshifters
+; A 256 byte intro for the 48K Sinclair ZX Spectrum
+; Released at Outline 2022
+;
+; https://www.pouet.net/prod.php?which=91582
+; https://www.youtube.com/watch?v=CwpgRfeOkP0
+
+
+; ========================================================
+; Screen Memory
+; ========================================================
+
+ScreenBase:              equ $4000
+ScreenBaseHi:            equ $40
+ScreenWidth:             equ 256
+ScreenHeight:            equ 192
+ScreenDataSize:          equ $1800 ; ( ScreenWidth * ScreenHeight / 8 )
+AttrBase:                equ $5800 ; ( ScreenBase + ScreenDataSize )
+AttrBaseHi:              equ $58
+ScreenCharCountX:        equ 32
+ScreenCharCountY:        equ 24
+AttrDataSize:            equ $300 ; ( ScreenCharCountX * ScreenCharCountY )
+
+; Screen Attributes
+
+ATTR_BRIGHT:             equ $40
+ATTR_FLASH:              equ $80
+
+COLOUR_BLACK:            equ $00
+COLOUR_BLUE:             equ $01
+COLOUR_RED:              equ $02
+COLOUR_MAGENTA:          equ $03
+COLOUR_GREEN:            equ $04
+COLOUR_CYAN:             equ $05
+COLOUR_YELLOW:           equ $06
+COLOUR_WHITE:            equ $07
+
+; System variables (used for alternate screen fill code)
+
+SYS_DF_SZ:              equ 0x5C6B ; The number of lines in the lower part of the screen
+SYS_CHARS:              equ 0x5C36
+
+
+; Address of attribute Double buffer
+AttrBufferBase:          equ $9000
+
+; options (not recently tested)
+ENABLE_VSYNC:            equ 1
+
+ENABLE_AUDIO:            equ 1
+ENABLE_AUDIO_MASK:       equ 1
+ENABLE_TIMING_BARS:      equ 0
+
+DOUBLE_BUFFER:            equ 1
+
+; Generate the sine table in an unused page somewhere after the program
+SineTableHi:                  equ $82
+SineTable:                    equ $8200
+
+
+ORG $8000    
+
+; The high byte of the program page (for self modifying code)
+OrgHi:                  equ $80
+
+
+    xor a
+    ;ld (SYS_DF_SZ),a ; we only need this if we are using Character printing to clear the screen
+    ld h,a
+    ld l,a
+
+    ; frame count and rotation state are stored on the stack
+    push hl ; push rot for main loop
+    push hl ; push frame for main loop
+
+
+    ; Sin table code : https://bbcmic.ro/#%7B%22v%22%3A1%2C%22program%22%3A%22MODE%201%5CnREMp%25%3D16*256%5CnREMv%25%3D0%5Cnp%25%3D0%5Cnv%25%3D128%5Cnx%25%3D0%5CnFOR%20j%25%3D0TO3%5CnFOR%20i%25%3D0TO255%5CnGCOL%200%2C3%5CnPLOT%2069%2Cx%25*2%2C512%2BSIN%283.14159*2.*x%25%2F256%29*16*16%5CnGCOL%200%2C1%2Bj%25%5CnPLOT%2069%2Cx%25*2%2C512%2Bp%25*16%2F256%5Cnp%25%3Dp%25%2Bv%25%5CnIF%20p%25%3E0%20v%25%3Dv%25-2%20ELSE%20v%25%3Dv%25%2B2%5Cn%5Cnx%25%3Dx%25%2B1%5CnNEXT%2C%22%7D
+
+if 1
+    ld bc,SineTable
+    ;ld hl,0 ; already set to 0
+    ld de,128 ; velocity
+GenSineLoop:
+
+    ; write result
+    ld a,h
+    ld (bc),a
+
+    ; set second half of table to negative
+    neg
+    set 7,c ; effectively add 128
+    ld (bc),a
+    res 7,c
+
+EnvelopeData: ; reuse this code for audio
+    add hl,de
+
+    ; update velocity
+    dec de
+    dec de
+
+    inc c
+    
+    jp p,GenSineLoop ; loop until c = 128
+
+endif
+    ; --------------------
+    ; End GenSine
+    ; --------------------
+
+
+    ; --------------------
+    ; Begin SetPixels
+    ; --------------------
+
+if 1
+SetPixels:
+    ld hl, ScreenBase
+    ld (hl),%01111110
+    ld d,h
+    ld e,l
+    inc de
+    ;ld bc, ScreenDataSize-1
+    ld b,0x18 ; so, we overrun by c bytes - whatever
+
+    ldir
+endif
+
+if 0
+    ld hl, ScreenBase
+    ld bc, ScreenDataSize-1
+ScrLoop:
+    ld a,h
+    rrca
+    rrca
+    rrca
+    sbc a,a
+    and  %00111110
+    ld (hl),a
+    inc hl
+
+    dec bc
+    ld a,b
+    or c
+    jr nz,ScrLoop
+endif
+
+if 0
+
+    ld a,0 ; note a is zero earlier in the program
+    ld (SYS_DF_SZ),a
+
+    ;ld hl, 0x27c5 ; geometry and dot
+    ;ld hl, 0x31ec ; vertical gradient bars
+    ;ld hl, 0x10ce ; helix sponge
+    ;ld hl, 0x29c1 ; alien writing
+    ;ld hl, 0x3123 ; boo
+    ;ld hl, 0x33ec ; round pattern
+    ;ld hl, 0x2d66 ; twisty
+    ;ld hl, 0x36f3 ; swoosh
+    ;ld hl, 0x3278 ; spiky
+    ;ld hl, 0x2af7 ; crosshatch
+    ;ld hl, 0x361c ; cobblestone
+
+    ld hl, 0x3da4 ; dots
+    ;ld hl, 0x3518 ; funky pattern
+    ;ld hl, 0x33d2 ; square hole
+    ;ld hl, 0x1953 ; grid
+    ;ld hl, 0x26a8 ; grid-ish
+    ;ld hl, 0x3c7a ; 7
+
+    ;ld hl, 0x2ab8 ; meh     
+    ;ld hl, 0x289f ; pattern
+    ;ld hl, 0x0919 ; A
+
+
+    ;ld hl, 0x81f9 ; grid (sintable)
+    ;ld hl, 0x81be ; lattice (sintable)
+
+    ; this code 
+    ;ld hl, 0x8000-257 ; horizontal lines
+    ;ld hl, 0x8200 -256 + 180; vertical bars
+
+
+    ld (SYS_CHARS),hl
+
+    ld bc,32*24
+charloop:
+    ld a,32
+    rst 0x10
+    dec bc
+    ld a,b
+    or c
+    jr nz,charloop
+
+endif
+
+    ; --------------------
+    ; End SetPixels
+    ; --------------------
+
+MainLoop:
+
+if ENABLE_TIMING_BARS
+	ld a,0
+	out (254),a
+endif
+
+if ENABLE_VSYNC
+    ;ei
+    halt
+    ;di
+endif
+
+if ENABLE_TIMING_BARS
+	ld a,4
+	out (254),a
+endif
+
+    ; blit attributes
+if DOUBLE_BUFFER    
+    ld hl, AttrBufferBase
+    ld de, AttrBase
+    ld bc, AttrDataSize
+    ldir
+endif    
+
+if ENABLE_TIMING_BARS
+	ld a,6
+	out (254),a
+endif
+
+    ; Audio mask
+    ld hl,EnvelopeData
+    ld a,(hl)
+    rrca    
+    ;rlca
+    ld (hl),a
+if ENABLE_AUDIO_MASK    
+    and 0x10
+endif    
+    ld (PatchAudio+1),a
+    
+    
+    pop hl ;ld hl,(Frame)
+
+PatchTimeSpeedup:
+    nop
+
+    inc hl
+    
+    push hl ;ld (Frame),hl
+
+
+
+    ; Update bright attribute flash 
+
+    ld a,l
+    add a
+
+    and 0x10
+if ENABLE_AUDIO
+    out (254),a
+endif    
+        
+    add a
+    add a
+
+PatchAttrOrBase:
+PatchAttrOr: equ PatchAttrOrBase + 1
+    add COLOUR_RED
+
+    ; flash drawing
+
+PatchFlashSpeedBase:
+PatchFlashSpeed: equ PatchFlashSpeedBase + 1
+    bit 3,l ;  cb 5d
+    ;bit 2,l ;  cb 55
+    jr z,over
+PatchFlash:
+    nop
+    ;xor a
+over:
+
+
+    ld (DrawPatchAndSrc),a
+
+    ; Update sequence
+
+    ; high level sequence
+
+    ;pop af ; get curr frame high into a
+    ;push af
+    ld a,h ; get curr frame high into a (it is still in h)
+
+    ;rrca
+    ;rrca
+    ;and 7 * 2 ; table size is 8, stride is 2
+    and 15 * 2 ; table size is 9, stride is 2 - overflow into random data at start of program and crash
+    ld hl,SequenceData
+    add l
+    ld l,a
+    ld a,(hl)
+    inc hl
+    ld l,(hl)
+    ld (hl),a
+
+
+
+
+
+    ; SequenceData
+
+
+
+    ; main effect sequence
+
+    ld b,4 ; patch table count
+    ld c,PatchDataLo ; patch table address
+PatchLoop:
+    ;ld hl,(Frame)    
+    pop hl
+    ;add hl,hl ; speed x2
+    push hl
+    add hl,hl ; speed x2
+    ;add hl,hl ; speed x2
+PatchTransitionSpeed:    
+    nop
+    
+    ;ld a,(Frame+1) ; use high part of frame as sequence index
+    ld l,h    
+    ld h,b ; rom page based on patch table index
+    ld a,(hl) ; get "random" value from ROM
+    xor l
+    and 3
+
+
+    ld l,c
+    ld h,OrgHi
+
+    ld e,(hl)
+    ld d,h
+
+    inc l
+    add l
+    ld l,a
+
+    ld a,(hl)
+    ld (de),a
+
+    ld a,c
+    add 5 ; plus one as we decremented above
+    ld c,a
+
+    djnz PatchLoop
+
+
+
+
+
+
+    ; Update Rotation
+
+    pop hl ; get frame 
+
+    ;ld a,(Frame)
+    ld a,l
+    add a; sla a
+    add a; sla a
+    add a; sla a
+    add a; sla a
+    ld d,a ; set texture v = Frame * 16
+
+    ;ld h,SineTableHi
+    
+    ;ld a,(Frame) ; already in l
+    ;ld l,a
+
+    ;ld a,3
+    ;ld a,(hl)
+    ;sra a
+    ;sra a
+    
+    ;nop
+    ;cpl ; neg is 2 byte instruction
+    ;sub a
+    
+    ;ld l,a
+
+
+    ;ld a,(Rot)
+    pop af ; pop rot
+    ;add a,l
+PatchDirectionBase:    
+PatchDirection: equ PatchDirectionBase + 1
+    add a,0
+    ;ld (Rot),a
+    push af ; push rot
+    push hl ; push frame
+
+    ; set from sine table
+
+    ld h,SineTableHi
+    ;ld a,(Rot) ; already in a
+    ld l,a
+    ld a,(hl)
+    ;sra a ; scale down Cos value so we get a zoom effect
+    ld (DrawPatchCos),a ; patch SMC (and store cos)
+    ld e,a ; setup texture u
+    dec e ; fix? for annoying out-by-one offset
+    ld a,l
+    add 64
+    ld l,a
+    ld a,(hl)
+PatchZoom:
+    nop
+    ;rlca ; top bit not set so this is valid
+    ld (DrawPatchSin),a ; patch SMC (and store sin)
+
+
+
+
+
+    ;ld a,(Cos+1) 
+
+
+
+
+if ENABLE_TIMING_BARS
+	ld a,1
+	out (254),a
+endif
+
+
+if ENABLE_TIMING_BARS
+    ld a,2
+    out (254),a
+endif
+
+    ;call DrawFrame
+
+    ; -------------------
+    ; Begin Draw Frame
+    ; -------------------
+;DrawFrame:
+
+
+
+    ;ld de, 0 ; screen uv
+    ;ld a,(Cos)
+
+    ;ld a,(Sin)
+    ;ld e,a
+
+if DOUBLE_BUFFER    
+    ld hl, AttrBufferBase ;  ImageBuf
+else    
+    ld hl, AttrBase ; Direct to screen
+endif    
+
+    ld b,24
+DrawFrameY:
+
+    push bc ; push y loop var
+    push de ; push screen uv for row
+
+    ld b,32
+DrawFrameX:
+    ; update UV for X
+
+    ; de = uv coord, update with sin,cos
+
+DrawPatchSinBase:
+DrawPatchSin: equ DrawPatchSinBase+1
+    ld a,0xff  ; SMC HERE (Sin+1)
+    add a,d
+    ld d,a
+
+DrawPatchCosBase:    
+DrawPatchCos: equ DrawPatchCosBase + 1
+    ld a,0xff ; SMC HERE (Cos+1)
+    add a,e
+    ld e,a
+
+
+    ; update prev value
+    ld a,(hl)
+
+    ; put but 1 into bit 2
+    ld c,a
+    rlc c
+    ; put bit 2 into bit 0
+    rrca
+    rrca
+    or c
+
+    ; mask out other values
+PatchAttrAndBase: 
+PatchAttrAnd: equ PatchAttrAndBase+1
+    ;and 0
+    and COLOUR_BLUE+COLOUR_GREEN 
+    ld c,a ; store shifted prev frame values
+
+    ; xor u with v
+    ld a,d
+    
+DrawPatchPattern:    
+    nop ; 00
+    ;add e
+    ;and e ; e6
+    ;or e ; b3
+    ;xor e ; ab
+
+    ; take top bit of u xor v only
+    ; sign extend
+    add a,a
+    sbc a,a
+    ; mask to leave just 2
+DrawPatchAndSrcBase:
+DrawPatchAndSrc: equ DrawPatchAndSrcBase + 1
+    and COLOUR_RED + ATTR_BRIGHT 
+
+    ; or in prev values
+    or c
+
+    ld (hl),a
+    inc hl
+
+
+    djnz DrawFrameX
+    ;out (254),a
+
+    pop de ; get uv
+
+    ; update UV for Y
+
+    ld a,(DrawPatchCos) ;  d = u coord
+    add a,d
+    ld d,a
+
+    rrca ; pitch
+    ;rrca ; pitch
+    ;rlca ; pitch
+PatchAudio:
+    and 0x10
+if ENABLE_AUDIO    
+    out (254),a
+endif
+
+    ld a,(DrawPatchSin) ; e = v coord 
+    ld c,a    
+    ld a,e
+    sub a,c
+    ld e,a
+
+
+
+    pop bc ; pop y loop var
+    djnz DrawFrameY
+
+    ;ret
+
+    ; -------------------
+    ; End Draw Frame
+    ; -------------------
+
+    jp MainLoop
+
+
+;EnvelopeData:
+;    db %00011001  ; same as add hl,de - use instruction from the setup code as data
+
+PatchData:
+PatchDataLo: equ PatchData & 0xff
+
+; each table has a byte address in the program to patch and 4 alternative values to patch into that address
+
+; col table 2 (Prev colour mask)
+    db PatchAttrAnd & 0xff
+    db 0;0 ; 1st 
+    db (COLOUR_GREEN + COLOUR_BLUE) * 1
+    db (COLOUR_GREEN ) * 1
+    db (COLOUR_RED + COLOUR_GREEN) * 1
+
+; Col Table (new colour)
+    db PatchAttrOr & 0xff
+    db (COLOUR_RED ) * 1 ; 2nd
+    db (COLOUR_RED + COLOUR_GREEN + COLOUR_BLUE) * 1
+    db (COLOUR_RED + COLOUR_GREEN) * 1 ; 1st
+    db (COLOUR_RED + COLOUR_BLUE) * 1
+
+
+; movement table
+MovementTableAddress:
+    db PatchDirection & 0xff
+    db 6
+    db 2
+MovementPatch:    
+    db 0
+    db 0xfc; 0xfe
+
+; pattern table
+    db DrawPatchPattern & 0xff
+    and e
+    xor e
+    or e
+    nop 
+
+
+; sequence data is a byte value to patch and the address to write it
+SequenceData:
+SequenceDataLo: equ SequenceData & 0xff
+    ; value, address
+
+    ; allow no movement
+    db 0, MovementPatch & 0xff
+
+    ; enable zoom with rotation
+    rlca
+    db PatchZoom & 0xff
+    
+    ; disable flashing
+    ;nop; xor a
+    ;db PatchFlash & 0xff
+
+    ; disable no movement
+    db 4, MovementPatch & 0xff
+
+    xor a ; enable flashing
+    db PatchFlash & 0xff
+
+    ; disable flashing
+    nop; 
+    db PatchFlash & 0xff
+
+    ; speed up time
+    inc hl
+    db PatchTimeSpeedup & 0xff  
+
+    ;xor a ; enable flashing
+    ;db PatchFlash & 0xff
+
+    xor a ; enable flashing
+    db PatchFlash & 0xff
+    
+
+    ; disable no movement
+    ;db -6, MovementPatch & 0xff
+
+    ; speed up transitions
+    ;add hl,hl
+    ;db PatchTransitionSpeed & 0xff
+
+    ; faster flash
+    ;db 0x55, PatchFlashSpeed & 0xff
+    ;db 8, MovementPatch & 0xff ; allow hectic movement
+
+    ; set movement update to nop - sort of an ending - repeat the current pattern (lucky it is an ok one)
+    db 0, MovementTableAddress & 0xff 
+
+    ; hardcode rotation speed to 0 for outro
+    db 0, PatchDirection & 0xff
+
+    ;db 0, MovementTableAddress & 0xff
+
+    ; patch rst 0
+    ;db 0xc7, PatchFlash & 0xff 
+
+;, PatchOutMovement & 0xff
+
+    ; disable flashing
+
+    ;db 0xc7, PatchFlash & 0xff ; patch rst 0
+
+
